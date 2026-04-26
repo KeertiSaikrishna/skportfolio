@@ -58,3 +58,110 @@ body {
   width: 0;
   transition: width 1s cubic-bezier(0.4,0,0.2,1);
 }
+
+/* Article prose */
+article h1 {
+  font-family: 'DM Serif Display', serif;
+  font-size: clamp(28px, 4vw, 44px);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  margin-bottom: 12px;
+}
+article h2 {
+  font-family: 'DM Serif Display', serif;
+  font-size: clamp(20px, 3vw, 28px);
+  letter-spacing: -0.01em;
+  margin-top: 64px;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+article p {
+  font-size: 16px;
+  line-height: 1.8;
+  color: var(--text-2);
+  margin-bottom: 20px;
+}
+article strong { color: var(--text); }
+article ul, article ol {
+  padding-left: 24px;
+  margin-bottom: 20px;
+  color: var(--text-2);
+  line-height: 1.8;
+}
+
+/* Inline code */
+article code {
+  font-size: 13px;
+  background: #1a1a1a;
+  color: #e2e8f0;
+  border: 1px solid #333;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* Code blocks — dark background */
+article pre {
+  background: #0d0d0d;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  padding: 24px;
+  overflow-x: auto;
+  margin: 28px 0;
+}
+article pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #e2e8f0;
+}
+
+/* Tables */
+article table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 28px 0;
+  font-size: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+article th {
+  background: #0d0d0d;
+  color: #e2e8f0;
+  font-weight: 600;
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid #2a2a2a;
+}
+article td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+}
+article tr:last-child td {
+  border-bottom: none;
+}
+article tr:nth-child(even) td {
+  background: var(--surface);
+}
+
+/* Blockquote */
+article blockquote {
+  border-left: 3px solid var(--border-mid);
+  padding: 4px 20px;
+  margin: 28px 0;
+  color: var(--text-2);
+  font-style: italic;
+  background: var(--surface);
+  border-radius: 0 8px 8px 0;
+}
+
+/* HR */
+article hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 56px 0;
+}

@@ -1,0 +1,343 @@
+If you've been using Next.js for a while, you've probably written `getServerSideProps`, sprinkled `"use client"` across your components, and maybe even migrated a route or two to the App Router. You know the terms — CSR, SSR, RSC. You can use them. But if someone asked you *why* React Server Components exist when Next.js already had SSR, could you actually explain it?
+
+I couldn't. Not really.
+
+I knew RSC was "better for performance" the same way I knew eating vegetables was good for me — technically true, never fully understood. It wasn't until I realized that with traditional Next.js SSR, every component's JavaScript ships to the browser *twice* — once rendered on the server, then again as JS for hydration — even for components that have zero interactivity, that something clicked.
+
+We've been sending your markdown parser, your date formatter, your syntax highlighter — all of it — to the browser, just so React can re-run it and confirm the output matches. That's the problem RSC was born to fix.
+
+This post is for the developer who knows the basics but can't quite explain *when* to use what or *why* the ecosystem evolved the way it did. We'll go from CSR to SSR to RSC, look at real performance numbers, and by the end you'll have an actual mental model — not just vocabulary.
+
+---
+
+## How CSR Revolutionised the Web (And What It Got Wrong)
+
+Before React and the SPA era, every interaction meant a round trip to the server. Click a tab — full page reload. Submit a form — full page reload. Navigate to a profile — full page reload. The browser was essentially a dumb terminal fetching pre-rendered HTML on every action.
+
+CSR changed everything. React gave us components, local state, and a virtual DOM that could update the page without ever touching the server. Routes changed instantly. State persisted across navigation. User interactions felt immediate. For the first time, web apps could feel like desktop apps.
+
+For a while, this was enough.
+
+**But CSR has a dirty secret — it front-loads all the pain onto the user's first visit.**
+
+Here's what actually happens when someone opens a CSR React app for the first time:
+
+```
+Browser requests page
+    ↓
+Server returns empty HTML shell  ← user sees blank screen
+    ↓
+Browser downloads entire JS bundle
+    ↓
+React boots up, fires API calls
+    ↓
+Data arrives, page finally renders ← user sees content
+```
+
+Every step in that chain is dead time for the user. On a fast laptop with a good connection you barely notice. On a mid-range Android phone on a 3G network in Hyderabad — you're staring at a white screen for 3-4 seconds before anything appears.
+
+This is the **FCP problem** — First Contentful Paint. And it's the most underrated flaw in CSR because developers almost never experience it themselves. You're building on a MacBook Pro on WiFi. Your users aren't.
+
+But slow FCP isn't even the only problem. When you open DevTools on a typical CSR app and look at the Network tab, you'll see something uncomfortable:
+
+- The entire app's JS bundle downloads upfront — including code for pages the user may never visit
+- `highlight.js` (~900kb), `lodash`, `date-fns`, `marked` — every library you imported anywhere ships to the browser
+- Then the API calls fire — and they fire *after* all that JS loads, not in parallel with it
+
+That last point is the **fetch waterfall**. The browser can't know what data to fetch until it's downloaded and executed your JS. So the network is idle while JS loads, then suddenly fires a cascade of requests. It's sequential work that looks parallel on a good connection and catastrophic on a bad one.
+
+And then there's SEO. When Googlebot crawls a CSR page, it sees this:
+
+```html
+<div id="__next"></div>
+```
+
+Just an empty div. Google has a two-wave indexing process — it crawls first, renders JS later. That render queue has limited capacity and can take days. AI search tools like Perplexity don't render JavaScript at all. Your content is invisible to them.
+
+CSR solved the right problem — user interactivity, local state, instant navigation. But it solved it by moving *everything* to the client, including things that had no business being there.
+
+---
+
+## SSR with Next.js — A Giant Leap Forward (With One Foot Still in the Past)
+
+CSR's problems were real enough that the community built an entirely different approach around them. Next.js made Server Side Rendering mainstream, and for good reason — it directly fixed the things CSR got wrong.
+
+Instead of shipping an empty HTML shell, the server now does the work. Your component tree renders on the server, real HTML goes to the browser on the first byte, and the user sees content immediately. FCP went from "stare at a blank screen" to "content is already there." Google's crawler gets actual HTML to index instead of an empty div.
+
+For a lot of teams, this was the migration that finally made their app feel production-grade.
+
+**SSG deserves a special mention here** because it's often conflated with SSR but the tradeoff is meaningfully different. With SSR, the server renders your page on every request — fresh data every time, but server cost every time. SSG renders once at build time and the output is a static HTML file. No server involved at request time at all — just a CDN serving a file.
+
+This makes SSG the perfect fit for content that doesn't change per user or per request — blog posts, landing pages, documentation, about pages. If your content is the same for every visitor and doesn't change by the minute, there's no reason to pay the SSR cost on every request. Build it once, serve it forever.
+
+The limitation is obvious — the moment your content needs to be dynamic or personalised, SSG can't help you. That's where SSR takes over.
+
+**But here's what Next.js doesn't tell you prominently — SSR didn't remove JavaScript from the equation. It just moved where the work starts.**
+
+Here's what actually happens on an SSR page load:
+
+```
+Browser requests page
+    ↓
+Server renders component tree → full HTML response
+    ↓
+Browser displays HTML immediately  ← fast FCP ✅
+    ↓
+Browser downloads entire JS bundle  ← same as CSR ⚠️
+    ↓
+React re-runs all components in browser (hydration)
+    ↓
+Page becomes interactive
+```
+
+That step where React re-runs everything in the browser — that's **hydration**. And it's the part most developers don't fully think about.
+
+The reason it has to happen is structural. Next.js renders your components on the server to produce HTML, then ships the same component code to the browser so React can "take over" — attach event listeners, restore state, make the page interactive. React needs to run through the entire component tree client-side to match it against the server-rendered HTML and confirm they're identical. Only then does your `onClick` actually work.
+
+This means every library your components import has to ship to the browser. Your markdown parser. Your syntax highlighter. Your date formatter. Not because the browser needs to *render* with them — the HTML is already there. But because React needs to *re-run* the components that used them during hydration.
+
+You're paying the full JS bundle cost even though the browser already has the rendered output.
+
+**And beyond the hydration tax, SSR introduces its own problems:**
+
+The first is **server complexity and infrastructure cost**. CSR apps are just static files — deploy them anywhere, scale trivially. SSR requires a running server that does real CPU work on every request. Under traffic spikes, that server becomes a bottleneck. You're now thinking about load balancing, scaling, cold starts — operational concerns that simply didn't exist with CSR.
+
+The second is the **all-or-nothing hydration problem**. SSR has no concept of "this component needs to be interactive, that one doesn't." It hydrates everything. That navbar that never changes — hydrated. That footer with static links — hydrated. That blog post content rendered from markdown — hydrated. All of it runs through React's reconciliation in the browser, all of it contributes to Total Blocking Time, none of it was necessary.
+
+SSR was a genuine improvement. It solved FCP, it fixed SEO, it gave us SSG and streaming. But it solved those problems without questioning the assumption underneath them — that all your component JavaScript needs to reach the browser.
+
+That assumption is exactly what React Server Components came to challenge.
+
+---
+
+## Hydration — The Problem Nobody Explained to You
+
+If you've used Next.js for any amount of time you've probably seen a hydration error. You fixed it by adding `"use client"` or moving some code around and moved on. But did you ever stop to understand what hydration actually is and why it's expensive?
+
+I didn't. Not until it became the reason I finally understood why RSC exists.
+
+**Here's what hydration actually does:**
+
+When the server sends HTML to the browser, the page looks complete — content is visible, the user can see everything. But it's like a stadium just before a match. The structure is there, the seats are filled, everything looks ready. But it's completely silent. Nobody is reacting to anything. No event handlers, no state, no interactivity. Just static markup.
+
+Hydration is the crowd filing in.
+
+React downloads the full JS bundle, boots up on the client, and then does something most developers don't realise — it **re-executes your entire component tree**. Not just the interactive parts. Everything.
+
+```
+Server HTML arrives → page looks ready (silent stadium)
+        ↓
+Browser downloads full JS bundle
+        ↓
+React re-runs every component function
+        ↓
+Builds a virtual DOM from scratch
+        ↓
+Compares virtual DOM against server HTML node by node
+        ↓
+Match → attaches event listeners
+Mismatch → hydration error ⚠️
+        ↓
+Page is actually interactive
+```
+
+React can't just scan the HTML for `onClick` attributes and wire them up. It needs to re-run every component to understand the full structure — which DOM nodes map to which components, where state lives, what the event handlers are. Only after that full reconciliation does your button actually respond to clicks.
+
+**This is where the real waste happens.**
+
+Your `PostContent` component that just renders markdown — React re-runs it. Your `AuthorCard` that just displays a name — React re-runs it. Your `Footer` with static links — React re-runs it. None of them have a single event handler to attach, but React doesn't know that until it's already executed them all.
+
+And to re-execute them, it needs their code. Which means every library those components import has to ship to the browser. Your syntax highlighter. Your markdown parser. Your date formatter. Not because the browser needs to render with them — the HTML is already there. But because React needs to re-run the components that used them during hydration.
+
+You're executing JavaScript on the server, shipping all of it to the client, and executing it again. Twice. For components that will never do anything interactive.
+
+This is why your Lighthouse TBT (Total Blocking Time) is often surprisingly high even when FCP looks great on an SSR page. The HTML arrived fast — the stadium looks full and ready. But the browser is still busy running JS in the background before the user can actually interact with anything. The match hasn't started yet.
+
+SSR solved the blank screen. It didn't solve the JS weight.
+
+And that's exactly the gap React Server Components were designed to close.
+
+---
+
+## React Server Components — Finishing What SSR Started
+
+SSR's intention was always right — do as much work on the server as possible. But the implementation had a ceiling. Every component, interactive or not, still had to reach the browser for hydration. The server rendered HTML, then stepped aside while the client re-ran everything.
+
+React Server Components make the intention real.
+
+**The fundamental shift is this:** RSC introduces two genuinely different kinds of components with different lifecycles, not just different rendering timing.
+
+Server Components run on the server and **never ship to the browser as JavaScript**. Not as HTML that gets hydrated. Not as code that gets downloaded. They simply don't exist on the client. Their imports, their libraries, their logic — none of it reaches the browser bundle.
+
+Client Components — marked with `"use client"` — work exactly like components always have. They render on the server for HTML, ship to the browser, and hydrate.
+
+The difference is structural, not superficial:
+
+```tsx
+// Server Component — no "use client"
+// highlight.js, marked, date-fns → stay on server, 0kb to browser
+export default async function PostContent({ slug }) {
+  const post = await db.posts.findOne(slug)  // direct DB access ✅
+  const html = marked(post.content)          // stays on server ✅
+  return <article dangerouslySetInnerHTML={{ __html: html }} />
+}
+
+// Client Component — has "use client"
+// only this ships to the browser
+"use client"
+export default function LikeButton({ postId }) {
+  const [liked, setLiked] = useState(false)  // needs client ✅
+  return <button onClick={() => setLiked(!liked)}>▲</button>
+}
+```
+
+**Think of it as two separate subtrees.**
+
+Your component tree is no longer a single thing that runs everywhere. Server components form one subtree — rendered on the server, producing HTML, done. Client components form another subtree — the parts that genuinely need interactivity, and only those parts, shipped to the browser.
+
+The browser only ever downloads and executes the client subtree. Everything in the server subtree — including every library it imports — never touches the client bundle.
+
+This is why in the demo app below, `highlight.js` (~900kb) completely disappears from the Network tab on the RSC route. It's imported in a Server Component. The server uses it, produces highlighted HTML, and that's the end of its journey. The browser receives the output, not the tool that made it.
+
+Going back to the hydration problem — RSC doesn't eliminate hydration, it **surgically reduces what needs to be hydrated**. Only client components hydrate. Your `PostContent`, `AuthorCard`, `Footer` — if they have no interactivity, they're Server Components now. React never re-runs them on the client because their code was never sent there.
+
+The stadium fills only in the sections that need a crowd.
+
+**But RSC isn't without its own complexity — and it's worth being honest about that.**
+
+The mental model takes time to internalise. The `"use client"` directive is easy to misuse — a common mistake is marking an entire component as a client component just because it has one interactive button, shipping all its heavy imports to the browser when only 10 lines actually needed to be client-side.
+
+Context and state management don't work across the server/client boundary. You can't pass a Redux store or a React Context from a Server Component into a Client Component — the server has no concept of client-side state. This catches a lot of developers off guard when migrating existing apps.
+
+Props passed from Server Components to Client Components must be serializable — no functions, no class instances, no complex objects. Just data that can cross the network as JSON. If you've ever seen the error *"Functions cannot be passed directly to Client Components"* — that's this boundary enforcing itself.
+
+Library support is still catching up. Many popular React libraries assume they run on the client and break inside Server Components. Checking whether a library supports the server environment is now part of the workflow.
+
+None of these are dealbreakers. They're the rough edges of a genuinely new model. But knowing they exist before you hit them is half the battle.
+
+---
+
+## The Demo — Same App, Three Ways
+
+Everything we've discussed so far is theory. Let's look at what actually happens when you measure it.
+
+I built the same HackerNews feed three ways — CSR via Pages Router with `useEffect`, SSR via `getServerSideProps`, and RSC via App Router Server Components. Every route uses the same four libraries: `highlight.js` (~900kb), `marked` (~45kb), `date-fns` (~75kb), and `lodash` (~70kb). The only difference is *where* they run.
+
+You can clone it and run it yourself — the full code is on GitHub at [**KeertiSaikrishna/hn-rendering-demo**](https://github.com/KeertiSaikrishna/hn-rendering-demo):
+
+```bash
+git clone https://github.com/KeertiSaikrishna/hn-rendering-demo
+cd hn-rendering-demo
+npm install
+npm run dev
+```
+
+Then open each route — `/csr`, `/ssr`, `/rsc` — with DevTools open and measure everything below yourself.
+
+> **One caveat worth noting** — this isn't "pure" CSR. Because the app is built on Next.js, even the CSR route gets a basic HTML shell from the server. A truly pure CSR app built with Vite would serve a completely empty `<div id="root">` — no content whatsoever until JS executes. The blank screen problem is even more extreme there. What we're measuring here is CSR *data fetching* behaviour within Next.js, which is still a valid and common real-world pattern.
+
+---
+
+**JS Downloads — Network Tab**
+
+| Route | JS Requests |
+|-------|-------------|
+| CSR   | 24 requests |
+| SSR   | 24 requests |
+| RSC   | 18 requests |
+
+CSR and SSR are identical — which makes complete sense now. SSR still ships every library to the browser for hydration. The JS bundle doesn't care that HTML was pre-rendered on the server. RSC drops 6 requests entirely because `highlight.js`, `marked`, `date-fns` and `lodash` never leave the server.
+
+To see this yourself: open DevTools → Network → filter by JS → reload each route. On CSR and SSR you'll see `highlight.js` downloading. On RSC it simply isn't there.
+
+---
+
+**The Waterfall**
+
+| Route | Load time |
+|-------|-----------|
+| CSR   | ~3 seconds |
+| SSR   | ~2 seconds |
+| RSC   | ~2 seconds |
+
+The CSR waterfall tells the whole story visually in DevTools. The browser receives the HTML shell, downloads JS, executes it, *then* fires the API calls to HackerNews. Three sequential phases before the user sees anything. SSR and RSC eliminate the blank screen phase — HTML arrives with content already rendered.
+
+---
+
+**Lighthouse Scores**
+
+| Route | Performance | SEO |
+|-------|-------------|-----|
+| CSR   | 95          | 80  |
+| SSR   | 85          | 80  |
+| RSC   | 99          | 100 |
+
+RSC wins clearly — 99 performance and a perfect 100 SEO score. The SEO difference is direct: RSC serves fully rendered HTML with no JS dependency, so crawlers get complete content immediately.
+
+SSR scores *worse* than CSR on performance here — and it's worth explaining. On localhost, SSR pays a server rendering cost on every request with no real network latency to offset it. In production on a real network with real users on real devices — especially slower ones — SSR and RSC pull ahead significantly because the blank screen penalty of CSR becomes much more painful. Lighthouse scores on localhost are directionally useful but not the whole story.
+
+---
+
+**Disable JavaScript**
+
+Try this on each route — DevTools → Settings → Disable JavaScript → reload:
+
+- **CSR** → stories don't load. The page shell appears but all content is blank — it lives entirely in `useEffect`
+- **SSR** → fully readable. Every story, every title, every score — all visible
+- **RSC** → fully readable. The Like buttons don't work (they're the only client component) but every piece of content is there
+
+This is the SEO and resilience argument made visible in one action.
+
+---
+
+The numbers confirm what the theory predicted. RSC isn't marketing — it's a measurable reduction in what reaches the browser, which translates directly into performance scores and SEO. But the most important takeaway isn't any single number — it's that the same four libraries behave completely differently depending on where in the component tree you use them.
+
+---
+
+## When to Use What — The Questions That Actually Matter
+
+After everything we've covered, the honest answer to "which rendering strategy should I use?" is — it depends. But not in a hand-wavy way. There are specific questions that cut through the decision quickly.
+
+**1. Who are your users and how do they access your app?**
+
+If your users are primarily on mobile, slower networks, or lower-end devices — CSR is the most painful choice you can make. The blank screen and JS parsing cost hits hardest on constrained hardware. SSR or RSC should be your default.
+
+If your users are authenticated professionals on desktop — a developer tool, an internal dashboard, a B2B SaaS — CSR is perfectly reasonable. SEO doesn't matter for pages behind a login. Fast interactions matter more than fast first paint.
+
+**2. Does your content need to be discovered?**
+
+If yes — a marketing site, a blog, a product listing page, anything a search engine or AI crawler needs to index — CSR is the wrong choice. You want SSR or SSG at minimum, RSC if you want the performance ceiling.
+
+If no — anything behind authentication, anything user-specific — SEO is irrelevant and CSR's tradeoffs become more acceptable.
+
+**3. What is the primary nature of your app?**
+
+**Mostly static content** — blogs, documentation, marketing pages, about pages — reach for SSG first. Build once, serve forever from a CDN. Zero server cost per request, perfect SEO, fast everywhere.
+
+**High interactivity, no SEO requirement** — SaaS dashboards, internal tools, anything behind a login — CSR is a legitimate choice. You're optimising for interaction speed and development simplicity, not first paint or crawlability.
+
+**Public-facing with mixed needs** — a D2C e-commerce platform, a news feed, a content platform — this is where RSC earns its place. Product listing pages are SSG. Product detail pages are SSR for fresh inventory and pricing. The cart, checkout, payment flow are Client Components. Each part of the app uses exactly the right strategy for its job.
+
+---
+
+A rough decision tree:
+
+```
+Is the page behind a login?
+  Yes → CSR is fine
+  No ↓
+
+Is the content static or rarely changing?
+  Yes → SSG
+  No ↓
+
+Does it have heavy libraries for rendering?
+  Yes → RSC (keep them off the client)
+  No → SSR is sufficient
+```
+
+---
+
+The mental model that ties it all together: **move work as close to the data as possible, and move rendering as close to the user as possible.** SSG puts rendering at deploy time on a CDN — as close to the user as it gets. RSC puts data fetching and heavy computation on the server — as close to the data as it gets. CSR puts everything on the client — simple, but expensive for the user.
+
+There is no universally correct answer. But there is always a most appropriate one — and now you have the understanding to find it.
