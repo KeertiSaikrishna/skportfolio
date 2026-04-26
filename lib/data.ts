@@ -37,7 +37,7 @@ export const experience = [
     location: "Hyderabad",
     bullets: [
       "Architected the frontend of the core <strong>Modelling module</strong> — the product's primary customer onboarding surface — driving cross-functional collaboration across backend, product, and design teams.",
-      "Migrated build system from Webpack to Vite, cutting <strong>build and hot-reload times by ~70%</strong> and significantly improving daily developer experience.",
+      "Led Webpack → Vite migration and purged <strong>~150 unused modules</strong> — slashing build time <strong>from 10 min to under 5 min</strong> and hot module reload <strong>from 8s to under 3s</strong>, transforming the daily dev experience.",
       "Built a <strong>plug-and-play AI chat provider component</strong> using Context-based state propagation — now embedded across multiple products, enabling the team to ship AI features faster.",
       "Rearchitected the dashboard framework to support global filters — a key capability that directly helped <strong>secure clients generating $150,000+ in annual revenue</strong>.",
       "Designed and shipped a full <strong>OAuth authentication flow</strong> with Google Sign-In, password login, and self-serve user management from scratch.",
