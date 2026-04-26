@@ -2,15 +2,12 @@
 
 import { motion } from "framer-motion";
 import Link from "next/link";
-import Nav from "@/components/Nav";
-import Footer from "@/components/Footer";
+
 import { blogPosts } from "@/lib/data";
 
 export default function BlogPage() {
   return (
     <>
-      <Nav />
-      <main>
         <section
           style={{
             padding: "80px max(24px, calc((100% - 960px) / 2)) 60px",
@@ -130,8 +127,6 @@ export default function BlogPage() {
             ))}
           </div>
         </section>
-      </main>
-      <Footer />
     </>
   );
 }
